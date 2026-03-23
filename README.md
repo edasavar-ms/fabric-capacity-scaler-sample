@@ -4,6 +4,22 @@ A Microsoft Fabric notebook that automatically scales your Fabric capacity up or
 
 ---
 
+> [!IMPORTANT]
+> **This is a sample repository.** The notebook file contains placeholder values that you **must** replace with your own Azure resource details before running.
+>
+> In `fabric-capacity-scaler.py`, update the following variables in **Cell 1**:
+>
+> | Variable | Description | Example |
+> |----------|-------------|---------|
+> | `SUBSCRIPTION_ID` | Your Azure subscription ID | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+> | `RESOURCE_GROUP` | Resource group containing your Fabric capacity | `my-resource-group` |
+> | `CAPACITY_NAME` | The name of your Fabric capacity resource | `my-fabric-capacity` |
+> | `KEY_VAULT_URL` | Full URL of your Azure Key Vault | `https://my-keyvault.vault.azure.net/` |
+>
+> All other values (SKUs, schedule, timezone) are pre-configured with sensible defaults and can be adjusted to suit your requirements.
+
+---
+
 ## What it does
 
 | Action | Description |

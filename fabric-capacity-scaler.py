@@ -4,9 +4,9 @@
 #          and back to F4 after hours.
 #
 # Configuration:
-#   - Subscription: 343a4b72-cb54-490e-963f-b18a42524b7c
-#   - Resource Group: rg-zava
-#   - Capacity Name: zavadevf2
+#   - Subscription: <your-subscription-id>
+#   - Resource Group: <your-resource-group>
+#   - Capacity Name: <your-capacity-name>
 #   - Base SKU: F4
 #   - Peak SKU: F8
 #   - Schedule: Monday 7am-6pm AEST (Australia/Sydney)
@@ -32,9 +32,9 @@
 action = "check_status"  # Options: "scale_up", "scale_down", "check_status", "auto"
 
 # Azure Resource Details
-SUBSCRIPTION_ID = "343a4b72-cb54-490e-963f-b18a42524b7c"
-RESOURCE_GROUP  = "rg-zava"
-CAPACITY_NAME   = "zavadevf2"
+SUBSCRIPTION_ID = "<your-subscription-id>"
+RESOURCE_GROUP  = "<your-resource-group>"
+CAPACITY_NAME   = "<your-capacity-name>"
 
 # SKU Configuration
 BASE_SKU = "F4"

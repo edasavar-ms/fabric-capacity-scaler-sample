@@ -89,15 +89,16 @@ KEY_VAULT_URL = "https://<your-keyvault-name>.vault.azure.net/"
 
 ### 3. Configure the Fabric Pipeline
 
+> [!NOTE]
+> Fabric Pipeline scheduled triggers cannot pass parameters to notebooks. The notebook defaults to `action = "auto"`, so **no parameters are needed** — it determines the correct action based on the current time and day.
+
 1. Create a Fabric Pipeline and add a **Notebook activity** pointing to this notebook.
 2. In the activity settings, go to **Settings → Connection** and set it to run as your **Service Principal**.
-3. Add a pipeline parameter named `action` and pass it as a notebook parameter.
-4. Set up triggers for each peak day. For explicit mode, you need a scale-up and scale-down trigger per day:
-   - **7am AEST** → pipeline parameter `action = "scale_up"`
-   - **6pm AEST** → pipeline parameter `action = "scale_down"`
-   - Apply these to: every Monday, and the Tuesday of the first trading week of each month.
+3. Add two scheduled triggers to the pipeline — no parameters required:
+   - **Daily at 7am AEST** → auto mode detects whether it's a peak day and scales up if so
+   - **Daily at 6pm AEST** → auto mode scales back down
 
-Alternatively, use `action = "auto"` on a single recurring trigger (e.g. daily at 7am and 6pm) and let the notebook determine the correct action based on the current day and date.
+The notebook's schedule logic handles which days qualify as peak days (every Monday, and the Tuesday of the first trading week). On non-peak days the 7am trigger runs, detects it's not a peak day, and scales down — leaving the capacity at the base SKU.
 
 ---
 
@@ -106,10 +107,10 @@ Alternatively, use `action = "auto"` on a single recurring trigger (e.g. daily a
 Set the `action` variable in Cell 1 before running the notebook:
 
 ```python
-action = "check_status"  # Safe default — no changes made
+action = "check_status"  # Safe default — reports status, no changes made
 action = "scale_up"      # Force scale to peak SKU
 action = "scale_down"    # Force scale to base SKU
-action = "auto"          # Let the schedule logic decide
+action = "auto"          # Let the schedule logic decide (default when run via pipeline)
 ```
 
 ---

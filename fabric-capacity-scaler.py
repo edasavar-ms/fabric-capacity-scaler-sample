@@ -1,7 +1,11 @@
 # Fabric Notebook: Auto-Scale Capacity
 #
-# Purpose: Scale Fabric capacity from F4 -> F8 on Monday mornings (7am-6pm AEST)
-#          and back to F4 after hours.
+# Purpose: Scale Fabric capacity from F4 -> F8 during peak windows (7am-6pm AEST):
+#            - Every Monday
+#            - Tuesday of the first trading week of each month
+#          and back to F4 outside those windows.
+#
+# "First trading week" = Mon-Fri of the week starting on the first Monday of the month.
 #
 # Configuration:
 #   - Subscription: <your-subscription-id>
@@ -9,7 +13,7 @@
 #   - Capacity Name: <your-capacity-name>
 #   - Base SKU: F4
 #   - Peak SKU: F8
-#   - Schedule: Monday 7am-6pm AEST (Australia/Sydney)
+#   - Schedule: See above (Australia/Sydney timezone)
 #
 # Authentication:
 #   - Method: Service Principal + Azure Key Vault
@@ -19,9 +23,10 @@
 #     Service Principal (Settings > Connection > Service Principal)
 #
 # Usage:
-#   - Schedule this notebook in a Fabric Pipeline with two triggers:
-#     1. Monday 7am AEST -> runs with parameter action="scale_up"
-#     2. Monday 6pm AEST -> runs with parameter action="scale_down"
+#   - Schedule this notebook in a Fabric Pipeline with two triggers per peak day:
+#     1. 7am AEST  -> runs with parameter action="scale_up"
+#     2. 6pm AEST  -> runs with parameter action="scale_down"
+#   - Or use action="auto" on a single trigger and let the notebook decide
 #   - Or run manually with action="scale_up" / "scale_down" / "check_status"
 
 # ============================================================
@@ -41,7 +46,10 @@ BASE_SKU = "F4"
 PEAK_SKU = "F8"
 
 # Schedule Configuration (for "auto" mode)
-PEAK_DAY        = 0   # Monday = 0
+# Peak windows (7am-6pm AEST):
+#   - Every Monday
+#   - Tuesday of the first trading week of the month
+#     (first trading week = Mon-Fri of the week starting on the first Monday of the month)
 PEAK_START_HOUR = 7   # 7am AEST
 PEAK_END_HOUR   = 18  # 6pm AEST
 TIMEZONE        = "Australia/Sydney"
@@ -78,7 +86,7 @@ import msal
 import requests
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 
@@ -146,16 +154,43 @@ def verify_scale(target_sku, wait_seconds=30):
         print(f"  ⏳ Scaling in progress. Current: {new_status['sku']}. Check again shortly.")
 
 
-def is_peak_time():
-    """Check if current time is within the peak window (Monday 7am-6pm AEST)."""
+def is_first_trading_week_of_month():
+    """Return True if today falls within the first trading week of the current month.
+
+    Definition: the Mon-Fri week starting on the first Monday of the month.
+    Example: if March 1 is a Sunday, first trading week = Mon Mar 2 – Fri Mar 6.
+    """
     tz  = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
 
-    is_peak_day   = now.weekday() == PEAK_DAY
-    is_peak_hours = PEAK_START_HOUR <= now.hour < PEAK_END_HOUR
+    first_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # days_to_monday: 0 if the 1st is already Monday, otherwise days until next Monday
+    days_to_monday = (7 - first_of_month.weekday()) % 7
+    first_monday   = first_of_month + timedelta(days=days_to_monday)
+    first_friday   = first_monday + timedelta(days=4)
+
+    return first_monday.date() <= now.date() <= first_friday.date()
+
+
+def is_peak_time():
+    """Check if current time is within a peak window (7am-6pm AEST) on a peak day.
+
+    Peak days:
+      - Every Monday
+      - Tuesday of the first trading week of the month
+    """
+    tz  = pytz.timezone(TIMEZONE)
+    now = datetime.now(tz)
+
+    is_monday              = now.weekday() == 0
+    is_tuesday             = now.weekday() == 1
+    in_first_trading_week  = is_first_trading_week_of_month()
+    is_peak_day            = is_monday or (is_tuesday and in_first_trading_week)
+    is_peak_hours          = PEAK_START_HOUR <= now.hour < PEAK_END_HOUR
 
     print(f"  Current time: {now.strftime('%A %Y-%m-%d %H:%M %Z')}")
-    print(f"  Peak day (Monday): {is_peak_day}")
+    print(f"  Monday: {is_monday} | Tuesday in first trading week: {is_tuesday and in_first_trading_week}")
+    print(f"  Peak day: {is_peak_day}")
     print(f"  Peak hours ({PEAK_START_HOUR}:00-{PEAK_END_HOUR}:00): {is_peak_hours}")
 
     return is_peak_day and is_peak_hours

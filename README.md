@@ -29,7 +29,16 @@ A Microsoft Fabric notebook that automatically scales your Fabric capacity up or
 | `check_status` | Reports the current SKU and state — no changes made |
 | `auto` | Checks the current time and automatically picks `scale_up` or `scale_down` based on the configured schedule |
 
-The default configuration scales up on **Monday mornings at 7am AEST** and back down at **6pm AEST**, but all schedule and SKU values are easily configurable at the top of the notebook.
+The default configuration scales up during the following windows (**7am–6pm AEST**) and back down outside them:
+
+| Peak day | When |
+|----------|------|
+| **Every Monday** | Weekly |
+| **Tuesday** | First trading week of each month only |
+
+> **First trading week** = the Mon–Fri week starting on the first Monday of the month. For example, if the 1st falls on a Sunday, the first trading week is the following Monday–Friday.
+
+All schedule and SKU values are easily configurable at the top of the notebook.
 
 ---
 
@@ -83,11 +92,12 @@ KEY_VAULT_URL = "https://<your-keyvault-name>.vault.azure.net/"
 1. Create a Fabric Pipeline and add a **Notebook activity** pointing to this notebook.
 2. In the activity settings, go to **Settings → Connection** and set it to run as your **Service Principal**.
 3. Add a pipeline parameter named `action` and pass it as a notebook parameter.
-4. Set up two scheduled triggers:
-   - **Monday 7am AEST** → pipeline parameter `action = "scale_up"`
-   - **Monday 6pm AEST** → pipeline parameter `action = "scale_down"`
+4. Set up triggers for each peak day. For explicit mode, you need a scale-up and scale-down trigger per day:
+   - **7am AEST** → pipeline parameter `action = "scale_up"`
+   - **6pm AEST** → pipeline parameter `action = "scale_down"`
+   - Apply these to: every Monday, and the Tuesday of the first trading week of each month.
 
-Alternatively, use `action = "auto"` on a single trigger and let the notebook determine the correct action based on the current time.
+Alternatively, use `action = "auto"` on a single recurring trigger (e.g. daily at 7am and 6pm) and let the notebook determine the correct action based on the current day and date.
 
 ---
 

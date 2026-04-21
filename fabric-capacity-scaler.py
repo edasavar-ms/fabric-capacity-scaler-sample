@@ -55,8 +55,12 @@ PEAK_END_HOUR   = 18  # 6pm AEST
 TIMEZONE        = "Australia/Sydney"
 
 # ARM API
-API_VERSION  = "2023-11-01"
+API_VERSION  = "2022-07-01-preview"
 ARM_BASE_URL = f"https://management.azure.com/subscriptions/{SUBSCRIPTION_ID}/resourceGroups/{RESOURCE_GROUP}/providers/Microsoft.Fabric/capacities/{CAPACITY_NAME}"
+
+# Valid Fabric SKU names (for early validation – update if Azure adds new tiers)
+VALID_SKUS = {"F2", "F4", "F8", "F16", "F32", "F64", "F128", "F256", "F512", "F1024", "F2048"}
+VALID_SKUS_DISPLAY = ", ".join(sorted(VALID_SKUS, key=lambda s: int(s[1:])))
 
 # HTTP / Polling Configuration
 HTTP_TIMEOUT          = 60    # seconds – timeout for each ARM API request
@@ -91,6 +95,7 @@ import msal
 import requests
 import json
 import time
+import copy
 from datetime import datetime, timedelta
 import pytz
 
@@ -124,7 +129,7 @@ def get_headers():
 
 
 def get_capacity_status():
-    """Get current capacity SKU and state."""
+    """Get current capacity SKU, state, and the full ARM resource body."""
     url = f"{ARM_BASE_URL}?api-version={API_VERSION}"
     response = requests.get(url, headers=get_headers(), timeout=HTTP_TIMEOUT)
     response.raise_for_status()
@@ -133,18 +138,73 @@ def get_capacity_status():
     return {
         "sku":      data.get("sku", {}).get("name", "Unknown"),
         "state":    data.get("properties", {}).get("state", "Unknown"),
-        "location": data.get("location", "Unknown")
+        "location": data.get("location", "Unknown"),
+        "_raw":     data   # full ARM response – used by scale_capacity for PUT fallback
     }
 
 
 def scale_capacity(target_sku):
-    """Scale the Fabric capacity to the target SKU."""
-    url     = f"{ARM_BASE_URL}?api-version={API_VERSION}"
-    payload = {"sku": {"name": target_sku, "tier": "Fabric"}}
+    """Scale the Fabric capacity to the target SKU.
 
-    response = requests.patch(url, headers=get_headers(), json=payload, timeout=HTTP_TIMEOUT)
-    response.raise_for_status()
+    Strategy:
+      1. Validate the target SKU name.
+      2. Try PATCH (partial update) first – it's lightweight.
+      3. If PATCH returns 400, fall back to PUT (create-or-update) which sends
+         the full resource body.  Some API versions / SKU combinations require PUT.
+    """
+    if target_sku not in VALID_SKUS:
+        raise ValueError(
+            f"Invalid SKU '{target_sku}'. Must be one of: {VALID_SKUS_DISPLAY}"
+        )
+
+    url     = f"{ARM_BASE_URL}?api-version={API_VERSION}"
+    headers = get_headers()
+    patch_payload = {"sku": {"name": target_sku, "tier": "Fabric"}}
+
+    # --- Attempt 1: PATCH (partial update) ---
+    print(f"  Attempting PATCH to {target_sku}...")
+    response = requests.patch(url, headers=headers, json=patch_payload, timeout=HTTP_TIMEOUT)
+
+    if response.ok:
+        return response.json() if response.text else {"status": "accepted", "code": response.status_code}
+
+    if response.status_code == 400:
+        error_body = _safe_response_body(response)
+        print(f"  ⚠️  PATCH returned 400. Azure says: {error_body}")
+        print(f"  Falling back to PUT (create-or-update)...")
+
+        # Fetch the full current resource to build the PUT body
+        current = get_capacity_status()
+        raw = copy.deepcopy(current["_raw"])
+        raw["sku"] = {"name": target_sku, "tier": "Fabric"}
+
+        # --- Attempt 2: PUT (create-or-update) ---
+        put_payload = {
+            "location":   raw.get("location", ""),
+            "sku":        raw["sku"],
+            "properties": raw.get("properties", {}),
+            "tags":       raw.get("tags", {}),
+        }
+        response = requests.put(url, headers=headers, json=put_payload, timeout=HTTP_TIMEOUT)
+
+    if not response.ok:
+        error_body = _safe_response_body(response)
+        raise requests.exceptions.HTTPError(
+            f"{response.status_code} Error for url: {response.url}\nAzure response: {error_body}",
+            response=response,
+        )
+
     return response.json() if response.text else {"status": "accepted", "code": response.status_code}
+
+
+def _safe_response_body(response):
+    """Extract a human-readable error message from an ARM error response."""
+    try:
+        body = response.json()
+        error = body.get("error", {})
+        return f"{error.get('code', '')} - {error.get('message', json.dumps(body))}"
+    except Exception:
+        return response.text or "(empty response body)"
 
 
 def verify_scale(target_sku, poll_interval=SCALE_POLL_INTERVAL, max_wait=SCALE_MAX_WAIT):

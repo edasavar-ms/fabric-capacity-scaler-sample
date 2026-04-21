@@ -58,6 +58,11 @@ TIMEZONE        = "Australia/Sydney"
 API_VERSION  = "2023-11-01"
 ARM_BASE_URL = f"https://management.azure.com/subscriptions/{SUBSCRIPTION_ID}/resourceGroups/{RESOURCE_GROUP}/providers/Microsoft.Fabric/capacities/{CAPACITY_NAME}"
 
+# HTTP / Polling Configuration
+HTTP_TIMEOUT          = 60    # seconds – timeout for each ARM API request
+SCALE_POLL_INTERVAL   = 15    # seconds – pause between status checks while waiting for scale
+SCALE_MAX_WAIT        = 600   # seconds – maximum time to wait for a scale operation (10 min)
+
 # ============================================================
 # Key Vault Configuration
 # Credentials for the Service Principal are stored in Key Vault.
@@ -121,7 +126,7 @@ def get_headers():
 def get_capacity_status():
     """Get current capacity SKU and state."""
     url = f"{ARM_BASE_URL}?api-version={API_VERSION}"
-    response = requests.get(url, headers=get_headers())
+    response = requests.get(url, headers=get_headers(), timeout=HTTP_TIMEOUT)
     response.raise_for_status()
     data = response.json()
 
@@ -137,21 +142,26 @@ def scale_capacity(target_sku):
     url     = f"{ARM_BASE_URL}?api-version={API_VERSION}"
     payload = {"sku": {"name": target_sku, "tier": "Fabric"}}
 
-    response = requests.patch(url, headers=get_headers(), json=payload)
+    response = requests.patch(url, headers=get_headers(), json=payload, timeout=HTTP_TIMEOUT)
     response.raise_for_status()
     return response.json() if response.text else {"status": "accepted", "code": response.status_code}
 
 
-def verify_scale(target_sku, wait_seconds=30):
-    """Wait briefly and confirm the capacity has reached the target SKU."""
-    print(f"  Waiting {wait_seconds}s for scale operation to complete...")
-    time.sleep(wait_seconds)
-    new_status = get_capacity_status()
-    print(f"  New SKU: {new_status['sku']} | State: {new_status['state']}")
-    if new_status["sku"] == target_sku:
-        print(f"  ✅ Successfully scaled to {target_sku}!")
-    else:
-        print(f"  ⏳ Scaling in progress. Current: {new_status['sku']}. Check again shortly.")
+def verify_scale(target_sku, poll_interval=SCALE_POLL_INTERVAL, max_wait=SCALE_MAX_WAIT):
+    """Poll until the capacity reaches the target SKU or the timeout expires."""
+    elapsed = 0
+    new_status = None
+    print(f"  Polling every {poll_interval}s (up to {max_wait}s) for scale to {target_sku}...")
+    while elapsed < max_wait:
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+        new_status = get_capacity_status()
+        print(f"  [{elapsed}s] SKU: {new_status['sku']} | State: {new_status['state']}")
+        if new_status["sku"] == target_sku:
+            print(f"  ✅ Successfully scaled to {target_sku}!")
+            return
+    current = new_status['sku'] if new_status else 'Unknown'
+    print(f"  ❌ Timed out after {max_wait}s. Current SKU: {current}. Scale may still be in progress.")
 
 
 def is_first_trading_week_of_month():
